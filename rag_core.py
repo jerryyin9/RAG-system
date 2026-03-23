@@ -20,7 +20,6 @@ from cryptography.fernet import Fernet
 # LangChain 核心组件
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_milvus import Milvus
 from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI
@@ -164,7 +163,9 @@ class RAGConfig:
         self.drop_old = kwargs.get("drop_old", False)
 
         # 新增：Embedding 模型名称（入库阶段用）        
-        self.embedding_model   = kwargs.get("embedding_model", "BAAI/bge-m3")
+        self.embedding_model   = kwargs.get("embedding_model", "models/text-embedding-004")
+        # embedding_device is meaningless for a cloud API — remove or keep as dead field.
+        # Safest: keep it but ignore it, so no downstream code breaks.
         self.embedding_device  = kwargs.get("embedding_device", "cpu")
 
         # FIX-04: LLM provider base URL now configurable
@@ -362,15 +363,26 @@ class UniversalRAGEngine:
                         return True, tl
                 return False, "unknown" # 指明了语言但不匹配
 
-            # --- D. 严格排除：路径深处出现的已知语言标识 ---
-            # 例如 /docs/fr/xxx，如果 fr 不在目标语言中，坚决拦截
-            for segment in path_segments:
+            # --- D. 检测路径中第一个语言标识段（仅看前3段）---
+            # Universal convention: language codes appear in the first 1-2 path segments.
+            # Scanning beyond segment 3 risks false-positives on filenames/slugs.
+            for idx, segment in enumerate(path_segments):
+                if idx >= 3:
+                    # Beyond 3rd segment — not a language selector, stop checking
+                    break
                 if segment in known_lang_codes:
                     is_match = any(segment.startswith(tl) for tl in target_langs)
                     return is_match, segment
 
+            # # --- E. 严格排除：路径深处出现的已知语言标识 ---
+            # # 例如 /docs/fr/xxx，如果 fr 不在目标语言中，坚决拦截
+            # for segment in path_segments:
+                # if segment in known_lang_codes:
+                    # is_match = any(segment.startswith(tl) for tl in target_langs)
+                    # return is_match, segment
 
-            # --- E. 兜底放行, 无明确语言标识的 URL（如 /docs/intro），放行到第二层内容检测
+
+            # --- F. 兜底放行, 无明确语言标识的 URL（如 /docs/intro），放行到第二层内容检测
             logger.debug("URL language 没有明确标记，默认放行: %s", url)
             return True, "unknown"
         except (ValueError, AttributeError) as exc:
@@ -972,8 +984,8 @@ class RAGChatBot:
         google_key:    str,
         collection_name: str = "rag_docs",
         llm_model:    str = "accounts/fireworks/models/llama-v3p3-70b-instruct",
-        embedding_model: str = "BAAI/bge-m3",
-        embedding_device: str = "cpu", # 如果有显卡写 cuda，Mac 写 mps，没有写 cpu
+        embedding_model: str = "models/text-embedding-004",
+        embedding_device: str = "cpu", # kept for signature compatibility, not used。 如果是跑BAAI/bge-m3本地模型，有显卡写 cuda，Mac 写 mps，没有写 cpu。 
         embeddings=None,
         # FIX-04: LLM base URL now configurable
         llm_base_url: str = "https://api.fireworks.ai/inference/v1",
@@ -995,16 +1007,9 @@ class RAGChatBot:
             temperature=0,
         )
         
-        # 2. 初始化 Embedding
-        #self.embeddings = GoogleGenerativeAIEmbeddings(
-        #    model=embedding_model, 
-        #    google_api_key=google_key, 
-        #    task_type="retrieval_document"
-        #)
-        
         
         if embeddings is None:
-            raise ValueError("RAGChatBot requires embeddings input from app.py.")
+            raise ValueError("RAGChatBot requires embeddings to be passed from app.py.")
         self.embeddings = embeddings
 
         # 3. Milvus – FIX-04: use configurable host/port

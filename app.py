@@ -9,17 +9,18 @@ from rag_core import RAGConfig, UniversalRAGEngine, RAGChatBot, SecretManager
 logger_app = logging.getLogger("app")
 
 @st.cache_resource
-def _get_cached_embeddings(model_name: str, device: str):
+def _get_cached_embeddings(model_name: str, google_key: str):
     """Process-level cache for the embedding model.
     @st.cache_resource survives reruns, tab switches and session resets.
     The old module-level _embedding_singleton only survived within one import."""
-    from langchain_huggingface import HuggingFaceEmbeddings
-    logger_app.info("st.cache_resource: loading embedding model (truly once per process)...")
-    return HuggingFaceEmbeddings(
-        model_name=model_name,
-        model_kwargs={"device": device},
-        encode_kwargs={"normalize_embeddings": True},
+    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+    logger_app.info("st.cache_resource: loading Google embedding model (once per process)...")
+    return GoogleGenerativeAIEmbeddings(
+        model=model_name,
+        google_api_key=google_key,
+        task_type="retrieval_document",
     )
+
 
 # --- 页面配置 ---
 st.set_page_config(page_title="RAG 知识库助手", layout="wide")
@@ -121,8 +122,8 @@ with st.sidebar:
     st.subheader("🤖 模型配置（可选）")
     embedding_model_name = st.text_input(
         "Embedding 模型",
-        value="BAAI/bge-m3",
-        help="Embedding 模型建议固定不频繁切换；切换后建议重启 Streamlit 进程释放旧模型内存。",
+        value="models/gemini-embedding-001",
+        help="Embedding 模型建议固定不频繁切换；切换后建议重启 Streamlit 进程释放旧模型内存, 且须勾选'清空旧数据'并重新入库。",
     )
     llm_model_name = st.text_input(
         "对话LLM模型 ID",
@@ -338,7 +339,7 @@ def _get_engine() -> UniversalRAGEngine:
         or st.session_state.get("_engine_cfg_key") != cfg_key
     ):
         # Get the process-level cached embedding — never reloads
-        emb = _get_cached_embeddings(embedding_model_name, "cpu")
+        emb = _get_cached_embeddings(embedding_model_name, google_key)
         st.session_state.engine = UniversalRAGEngine(config, api_keys, embeddings=emb)
         st.session_state["_engine_cfg_key"] = cfg_key
     return st.session_state.engine
@@ -594,7 +595,7 @@ with tab2:
                         milvus_port=milvus_port,
                         retrieval_k=int(retrieval_k),
                         rerank_top_n=int(rerank_top_n),
-                        embeddings=_get_cached_embeddings(embedding_model_name, "cpu"),  # ← pass in
+                        embeddings=_get_cached_embeddings(embedding_model_name, google_key),  # ← pass in
                     )
                     st.session_state.current_coll_name = target_coll_name
                     # 切换知识库时清空聊天记录，防止上下文污染
