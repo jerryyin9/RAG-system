@@ -10,7 +10,7 @@ docker-compose up -d
 
 :: 2. 激活环境并启动 Streamlit
 echo 正在启动 Web UI 界面...
-call \venv\Scripts\activate
+call ..\venv\Scripts\activate
 streamlit run app.py
 
 pause

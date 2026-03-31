@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import pandas as pd
 import streamlit as st
 from langchain_core.messages import HumanMessage
+from pymilvus import connections, utility
 from rag_core import RAGConfig, UniversalRAGEngine, RAGChatBot, SecretManager
 
 logger_app = logging.getLogger("app")
@@ -31,28 +32,43 @@ st.markdown("""
 <style>
     /* A. 极致压缩顶部空间 - 解决标题过低问题 */
     .stApp { margin-top: -50px !important; }
-    .block-container { 
-        padding-top: 2rem !important; 
-        padding-bottom: 12rem !important; /* 给底部输入框留出足够的垫片空间 */
-        max-width: 90% !important; 
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 5rem !important; /* just enough to clear the sticky input bar */
+        max-width: 90% !important;
     }
     header { visibility: hidden; } /* 隐藏顶部装饰条 */
 
     /* B. 标题样式 */
     h1 { margin-top: -10px !important; padding-bottom: 15px; font-size: 2.2rem !important; }
 
-    /* C. 按钮对齐 - 解决对齐不准问题 */
+    /* C. 按钮对齐 */
     div[data-testid="stButton"] button {
-        margin-top: 28px !important;
-        height: 45px;
+        height: 38px;
         border-radius: 8px;
+        margin-top: 0 !important;
+    }
+    /* Align selectbox (label-collapsed) with adjacent buttons */
+    div[data-testid="stSelectbox"] {
+        margin-top: 0 !important;
+        padding-top: 0 !important;
     }
 
-    /* D. 仿 Gemini 输入框 - 自动避让侧边栏且样式轻盈 */
-    /* 核心：不要用 position: fixed，利用原生容器进行样式穿透 */
+    /* E. Tighten vertical gaps between all elements */
+    [data-testid="stVerticalBlock"] {
+        gap: 0.3rem !important;
+    }
+    [data-testid="stVerticalBlock"] > div:has([data-testid="stColumns"]) {
+        margin-bottom: 0 !important;
+    }
+    .element-container {
+        margin-bottom: 0 !important;
+    }
+
+    /* D. Chat input — stBottom positioning handled by JS in the chat section */
     [data-testid="stChatInput"] {
         background-color: transparent !important;
-        padding-bottom: 25px !important;
+        padding-bottom: 0 !important;
     }
 
     [data-testid="stChatInput"] textarea {
@@ -465,7 +481,7 @@ with _nav_col2:
         st.session_state.active_section = "chat"
         st.rerun()
 
-st.divider()
+st.markdown('<hr style="margin:4px 0 6px 0; border:none; border-top:1px solid #dee2e6;">', unsafe_allow_html=True)
 
 # --- SECTION 1: 知识库构建 ---
 if st.session_state.active_section == "build":
@@ -691,11 +707,34 @@ if st.session_state.active_section == "build":
 
 # --- SECTION 2: 聊天界面 ---
 elif st.session_state.active_section == "chat":
-    #st.subheader("RAG 智能文档助理对话") #占web界面的空间，去掉
-    
+    # Pin the chat input to the true viewport bottom, aligned to the block-container
+    st.components.v1.html("""
+    <script>
+    (function() {
+        function pinChatInput() {
+            var doc = window.parent.document;
+            var stBottom = doc.querySelector('[data-testid="stBottom"]');
+            var container = doc.querySelector('.block-container');
+            if (!stBottom || !container) return;
+            var rect = container.getBoundingClientRect();
+            stBottom.style.position      = 'fixed';
+            stBottom.style.bottom        = '0';
+            stBottom.style.left          = rect.left + 'px';
+            stBottom.style.width         = rect.width + 'px';
+            stBottom.style.right         = '';
+            stBottom.style.zIndex        = '1000';
+            stBottom.style.background    = 'white';
+            stBottom.style.paddingBottom = '0.75rem';
+        }
+        pinChatInput();
+        setTimeout(pinChatInput, 300);
+        window.parent.addEventListener('resize', pinChatInput);
+    })();
+    </script>
+    """, height=0)
+
     # 1. 顶部增加集合选择区
-    #st.markdown("### 🔍 知识库选择")
-    col_select, col_refresh = st.columns([4, 1])
+    col_label, col_select, col_refresh, col_delete = st.columns([1.6, 4.4, 1.5, 1.5])
     # 获取集合信息
     # 使用 st.spinner 包裹，防止加载时界面卡死
     # only fetches when needed
@@ -738,6 +777,14 @@ elif st.session_state.active_section == "chat":
         0,
     )
 
+    _confirming = bool(st.session_state.get("_confirm_delete_coll"))
+
+    with col_label:
+        st.markdown(
+            '<div style="padding-top:8px; font-size:0.95rem; white-space:nowrap;">'
+            '选择要对话的知识库：</div>',
+            unsafe_allow_html=True,
+        )
     with col_select:
         selected_option = st.selectbox(
             "选择要对话的知识库：",
@@ -745,11 +792,41 @@ elif st.session_state.active_section == "chat":
             index=default_idx,
             key="chat_coll_select_final",
             help="系统已自动选择您最近构建或使用的知识库。",
+            label_visibility="collapsed",
+            disabled=_confirming,
         )
     with col_refresh:
-        if st.button("🔄 刷新列表", use_container_width=True):
+        if st.button("🔄 刷新列表", use_container_width=True, disabled=_confirming):
             st.session_state["_coll_refresh_needed"] = True
             st.rerun()
+    with col_delete:
+        if st.button("删除知识库", use_container_width=True, type="secondary", disabled=_confirming):
+            st.session_state["_confirm_delete_coll"] = name_map[selected_option]
+            st.rerun()
+
+    # Confirm-delete banner (appears below the toolbar row)
+    if st.session_state.get("_confirm_delete_coll"):
+        _del_name = st.session_state["_confirm_delete_coll"]
+        st.warning(f"⚠️ 确认删除知识库 **{_del_name}**？此操作不可撤销。")
+        _dc1, _dc2, _ = st.columns([1.8, 1.8, 6.4])
+        with _dc1:
+            if st.button("✅ 确认删除", type="primary", use_container_width=True):
+                try:
+                    connections.connect(host=milvus_host, port=milvus_port)
+                    utility.drop_collection(_del_name)
+                    st.session_state["_coll_refresh_needed"] = True
+                    st.session_state.pop("_confirm_delete_coll", None)
+                    if st.session_state.get("current_coll_name") == _del_name:
+                        st.session_state.pop("chatbot", None)
+                        st.session_state["current_coll_name"] = None
+                    st.success(f"✅ 知识库 '{_del_name}' 已删除。")
+                    st.rerun()
+                except Exception as _e:
+                    st.error(f"删除失败: {_e}")
+        with _dc2:
+            if st.button("❌ 取消", use_container_width=True):
+                st.session_state.pop("_confirm_delete_coll", None)
+                st.rerun()
 
     # 2. 核心逻辑：检测切换并初始化 ChatBot
     if selected_option and all_collections:
@@ -795,7 +872,7 @@ elif st.session_state.active_section == "chat":
 
     # 关键：将 chat_input 放在 Tab 的最外层，不要包裹在任何 col 或 sub-container 里
     # Streamlit 会自动将其锚定在浏览器底部
-    if prompt := st.chat_input("基于当前选择的知识库，输入您的问题..."):
+    if prompt := st.chat_input("基于当前选择的知识库，输入您的问题...", disabled=_confirming):
         
         # 1. 立即显示用户输入
         st.session_state.chat_messages.append({"role": "user", "content": prompt})
