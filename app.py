@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 from langchain_core.messages import HumanMessage
 from pymilvus import connections, utility
+import rag_settings
 from rag_core import RAGConfig, UniversalRAGEngine, RAGChatBot, SecretManager
 
 logger_app = logging.getLogger("app")
@@ -142,6 +143,11 @@ for key, default in _STATE_DEFAULTS.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
+# Load persisted settings (falls back to defaults for any missing key)
+if "rag_cfg" not in st.session_state:
+    st.session_state.rag_cfg = rag_settings.load()
+
+_S = st.session_state.rag_cfg   # short alias used below
 
 def _auto_collection_name(sitemap_url: str, existing_colls: list) -> tuple:
     """Return (domain_prefix, suggested_new_name).
@@ -185,19 +191,19 @@ with st.sidebar:
     st.subheader("🤖 模型配置（可选）")
     embedding_model_name = st.text_input(
         "Embedding 模型",
-        value="models/gemini-embedding-001",
+        value=_S["embedding_model_name"],
         help="Embedding 模型建议固定不频繁切换；切换后建议重启 Streamlit 进程释放旧模型内存, 且须勾选'清空旧数据'并重新入库。",
         disabled=is_building,
     )
     llm_model_name = st.text_input(
         "对话LLM模型 ID",
-        value="accounts/fireworks/models/llama-v3p3-70b-instruct",
+        value=_S["llm_model_name"],
         help="高级用法：填写 Fireworks 上对应的模型 ID，不懂可保持默认。",
         disabled=is_building,
     )
     llm_base_url = st.text_input(
         "对话LLM模型 Base URL",
-        value="https://api.fireworks.ai/inference/v1",
+        value=_S["llm_base_url"],
         help="切换到其他 OpenAI 兼容接口时修改此项，例如本地 Ollama。",
         disabled=is_building,
     )
@@ -237,38 +243,38 @@ with st.sidebar:
     st.subheader("🕸️ 爬虫设置")
 
     firecrawl_url = st.text_input(
-        "本地 Firecrawl 地址", value="http://localhost:13002", disabled=is_building,
+        "本地 Firecrawl 地址", value=_S["firecrawl_url"], disabled=is_building,
     )
     sitemap_url = st.text_input(
-        "Sitemap URL", value="https://milvus.io", disabled=is_building,
+        "Sitemap URL", value=_S["sitemap_url"], disabled=is_building,
     )
 
     include_pattern = st.text_input(
-        "只爬取包含以下路径的网址 (逗号分隔)", value="/docs", disabled=is_building,
+        "只爬取包含以下路径的网址 (逗号分隔)", value=_S["include_pattern"], disabled=is_building,
     )
     exclude_pattern = st.text_input(
-        "排除爬取包含以下路径的网址 (逗号分隔)", value="", disabled=is_building,
+        "排除爬取包含以下路径的网址 (逗号分隔)", value=_S["exclude_pattern"], disabled=is_building,
     )
 
     col_f1, col_f2 = st.columns(2)
     with col_f1:
         max_depth = st.number_input(
             "爬取目录深度",
-            min_value=0, value=0,
+            min_value=0, value=_S["max_depth"],
             help="URL 路径中 '/' 的最大数量，0 表示不限制深度",
             disabled=is_building,
         )
     with col_f2:
         max_limit = st.number_input(
             "爬取网页数量",
-            min_value=0, value=0,
+            min_value=0, value=_S["max_limit"],
             help="限制单次爬取的 URL 总数量，0 表示不限制，如果高频抓取上万个页面可能会触发目标网站的防火墙导致封禁风险！",
             disabled=is_building,
         )
 
     start_index_ui = st.number_input(
         "起始索引（断点续爬）",
-        value=0,
+        value=_S["start_index_ui"],
         help="上次任务结束时的网页索引，用于断点续爬。",
         disabled=is_building,
     )
@@ -285,7 +291,7 @@ with st.sidebar:
     selected_langs = st.multiselect(
         "爬取以下语言的网页",
         options=list(lang_options.keys()),
-        default=["中文(简/繁)", "英语"],
+        default=_S["selected_langs"],
         help="留空则不进行语言过滤。",
         disabled=is_building,
     )
@@ -295,8 +301,8 @@ with st.sidebar:
 
     # ── Milvus connection (must come before collection name so we can query DB) ─
     st.subheader("🗄️ Milvus 连接")
-    milvus_host = st.text_input("Milvus Host", value="127.0.0.1", disabled=is_building)
-    milvus_port = st.text_input("Milvus Port", value="19530", disabled=is_building)
+    milvus_host = st.text_input("Milvus Host", value=_S["milvus_host"], disabled=is_building)
+    milvus_port = st.text_input("Milvus Port", value=_S["milvus_port"], disabled=is_building)
 
     # Populate collection cache now that we have host/port
     if "all_collections_cache" not in st.session_state:
@@ -314,22 +320,22 @@ with st.sidebar:
     col_p1, col_p2 = st.columns(2)
     with col_p1:
         batch_size = st.number_input(
-            "批处理大小", 10, 500, value=200,
+            "批处理大小", 10, 500, value=_S["batch_size"],
             help="每批提交到线程池的任务数，控制内存消耗。如果 25 并发线程运行稳定，可以把 BATCH_SIZE酌情提高。",
             disabled=is_building,
         )
         chunk_size = st.number_input(
-            "切片大小", value=1000,
+            "切片大小", value=_S["chunk_size"],
             help="块越大，Embedding 调用次数越少，速度越快。如很多网页被切出了 50 个以上的块，尝试调大到 1500 或 2000。",
             disabled=is_building,
         )
     with col_p2:
         max_threads = st.number_input(
-            "并发线程数", min_value=1, max_value=30, value=10,
+            "并发线程数", min_value=1, max_value=30, value=_S["max_threads"],
             help="数值越大速度越快，建议 5-15。",
             disabled=is_building,
         )
-        chunk_overlap = st.number_input("切片重叠", value=200, disabled=is_building)
+        chunk_overlap = st.number_input("切片重叠", value=_S["chunk_overlap"], disabled=is_building)
 
     # ── Collection name: auto-suggest or pick existing ────────────────────────
     _existing_colls = st.session_state.get("all_collections_cache", [])
@@ -364,7 +370,7 @@ with st.sidebar:
 
     drop_old = st.checkbox(
         "启动时清空旧数据",
-        value=False,
+        value=_S["drop_old"],
         help="仅在数据结构出错时使用，完成后务必取消勾选。",
         disabled=is_building,
     )
@@ -374,16 +380,51 @@ with st.sidebar:
     st.subheader("🔍 检索参数")
     retrieval_k = st.number_input(
         "向量数据库初查结果数量 (k)",
-        min_value=1, max_value=50, value=10,
+        min_value=1, max_value=50, value=_S["retrieval_k"],
         help="向量库粗排阶段召回的文档数量。",
         disabled=is_building,
     )
     rerank_top_n = st.number_input(
         "精确排序后保留数量 (top-n)",
-        min_value=1, max_value=10, value=3,
+        min_value=1, max_value=10, value=_S["rerank_top_n"],
         help="FlashRank 精确排序后保留并注入 prompt 的文档数，必须 ≤ 向量召回数量。",
         disabled=is_building,
     )
+
+
+
+# Auto-save whenever sidebar values differ from stored.
+
+
+# Auto-save settings when the user changes any sidebar value.
+# Comparison is done by value so this never saves unnecessarily.
+_current_sidebar_values = rag_settings.current_values_from_sidebar(
+    embedding_model_name = embedding_model_name,
+    llm_model_name       = llm_model_name,
+    llm_base_url         = llm_base_url,
+    firecrawl_url        = firecrawl_url,
+    sitemap_url          = sitemap_url,
+    include_pattern      = include_pattern,
+    exclude_pattern      = exclude_pattern,
+    max_depth            = max_depth,
+    max_limit            = max_limit,
+    start_index_ui       = start_index_ui,
+    selected_langs       = selected_langs,
+    milvus_host          = milvus_host,
+    milvus_port          = milvus_port,
+    batch_size           = batch_size,
+    chunk_size           = chunk_size,
+    max_threads          = max_threads,
+    chunk_overlap        = chunk_overlap,
+    drop_old             = drop_old,
+    retrieval_k          = retrieval_k,
+    rerank_top_n         = rerank_top_n,
+)
+
+if _current_sidebar_values != st.session_state.rag_cfg:
+    # Values changed — persist immediately and update the in-session cache
+    rag_settings.save(_current_sidebar_values)
+    st.session_state.rag_cfg = _current_sidebar_values
 
 
 # --- 主界面 ---
