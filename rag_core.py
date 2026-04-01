@@ -19,7 +19,10 @@ from cryptography.fernet import Fernet
 
 # LangChain 核心组件
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+<<<<<<< HEAD
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+=======
+>>>>>>> c871ba62308154c6755c3fe58b34b0adb98ed810
 from langchain_milvus import Milvus
 from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI
@@ -162,11 +165,20 @@ class RAGConfig:
         self.collection_name = kwargs.get("collection_name", "rag_docs")
         self.drop_old = kwargs.get("drop_old", False)
 
+<<<<<<< HEAD
         # 新增：Embedding 模型名称（入库阶段用）        
         self.embedding_model   = kwargs.get("embedding_model", "models/text-embedding-004")
         # embedding_device is meaningless for a cloud API — remove or keep as dead field.
         # Safest: keep it but ignore it, so no downstream code breaks.
         self.embedding_device  = kwargs.get("embedding_device", "cpu")
+=======
+        # embedding_model is not used internally — the actual embedding object
+        # is injected via embeddings= parameter from app.py
+        self.embedding_model   = kwargs.get("embedding_model", "")
+        # embedding_device is meaningless for a cloud API — remove or keep as dead field.
+        # Safest: keep it but ignore it, so no downstream code breaks.
+        self.embedding_device  = kwargs.get("embedding_device", "cpu") #如果是跑BAAI/bge-m3本地模型，有显卡写 cuda，Mac 写 mps，没有写 cpu。 
+>>>>>>> c871ba62308154c6755c3fe58b34b0adb98ed810
 
         # FIX-04: LLM provider base URL now configurable
         self.llm_base_url      = kwargs.get("llm_base_url", "https://api.fireworks.ai/inference/v1")
@@ -178,6 +190,8 @@ class RAGConfig:
         # Ingestion control执行控制
         self.start_index = kwargs.get("start_index", 0)
         self.batch_size = kwargs.get("batch_size", 200)
+        
+        self.assistant_role = kwargs.get("assistant_role", "专业的知识库助手")
 
         # FIX-03: validate after all fields are set
         self._validate()
@@ -389,9 +403,6 @@ class UniversalRAGEngine:
             logger.debug("URL lang check failed for %s: %s", url, exc)
             return True, "unknown"
 
-        # 保险：严格确保此函数始终返回 (bool, str)
-        logger.debug("URL lang check意外执行路径，默认放行: %s", url)
-        return True, "unknown"
 
     # -----------------------------------------------------------------------
     # Sitemap auto-discovery
@@ -463,7 +474,7 @@ class UniversalRAGEngine:
     # -----------------------------------------------------------------------
     def generate_doc_id(self, url: str) -> str:
         clean_url = url.split("#")[0].rstrip("/")
-        return hashlib.md5(clean_url.encode()).hexdigest()[:8]
+        return hashlib.md5(clean_url.encode()).hexdigest()[:12]
 
     # -----------------------------------------------------------------------
     # Sitemap preview
@@ -739,7 +750,18 @@ class UniversalRAGEngine:
                 # 核心：让 ID 和切片索引绑定，确保生成带后缀的唯一ID且可复用
                 ids = [f"{base_id}_{i}" for i in range(len(splits))]
 
-                self.vector_store.add_documents(splits, ids=ids)
+                for embed_attempt in range(4):
+                    try:
+                        self.vector_store.add_documents(splits, ids=ids)
+                        break
+                    except Exception as embed_exc:
+                        err_str = str(embed_exc).lower()
+                        if "429" in err_str or "quota" in err_str or "resource_exhausted" in err_str:
+                            wait = 60 * (2 ** embed_attempt)   # 60s, 120s, 240s, 480s
+                            logger.warning("Embedding quota hit, waiting %ds before retry…", wait)
+                            time.sleep(wait)
+                        else:
+                            raise  # non-quota error — re-raise immediately
                 return True, f"成功 ({len(splits)} 切片, 语言: {page_lang})", fetched_soup
 
             except Exception as exc:
@@ -984,8 +1006,11 @@ class RAGChatBot:
         google_key:    str,
         collection_name: str = "rag_docs",
         llm_model:    str = "accounts/fireworks/models/llama-v3p3-70b-instruct",
+<<<<<<< HEAD
         embedding_model: str = "models/text-embedding-004",
         embedding_device: str = "cpu", # kept for signature compatibility, not used。 如果是跑BAAI/bge-m3本地模型，有显卡写 cuda，Mac 写 mps，没有写 cpu。 
+=======
+>>>>>>> c871ba62308154c6755c3fe58b34b0adb98ed810
         embeddings=None,
         # FIX-04: LLM base URL now configurable
         llm_base_url: str = "https://api.fireworks.ai/inference/v1",
@@ -1171,9 +1196,11 @@ class RAGChatBot:
         profile = state.get("user_profile", {})
         
         # 动态 System Prompt
-        system_prompt = f"""你是一个专业的数据分析专家助手。
-        用户画像：{profile}
-        请根据参考资料回答用户问题。如果资料不足，请诚实告知。"""
+        system_prompt = (
+            f"你是一个{self.config.assistant_role if hasattr(self, 'config') else '专业的知识库助手'}。\n"
+            f"用户画像：{profile}\n"
+            "请根据参考资料回答用户问题。如果资料不足，请诚实告知。"
+        )
         
         # 构造消息列表：System + History
         messages = [SystemMessage(content=system_prompt)] + state["messages"]
