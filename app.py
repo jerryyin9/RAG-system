@@ -243,7 +243,7 @@ with st.sidebar:
     st.subheader("🕸️ 爬虫设置")
 
     firecrawl_url = st.text_input(
-        "本地 Firecrawl 地址", value=_S["firecrawl_url"], disabled=is_building,
+        "Firecrawl 地址", value=_S["firecrawl_url"], disabled=is_building,
     )
     sitemap_url = st.text_input(
         "Sitemap URL", value=_S["sitemap_url"], disabled=is_building,
