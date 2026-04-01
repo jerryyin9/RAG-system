@@ -20,7 +20,7 @@ chmod +x setup.sh start.sh
 第二步：运行脚本
 以后只要在终端里输入下面的命令就可以运行了：
 Bash
-# 第一次运行初始化
+#第一次运行
 ./setup.sh
-# 以后每天启动
+#以后每天启动
 ./start.sh
