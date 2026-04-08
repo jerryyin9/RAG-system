@@ -38,6 +38,8 @@ DEFAULTS: dict = {
     "max_limit":        0,
     "start_index_ui":   0,
     "selected_langs":   ["中文(简/繁)", "英语"],
+    "auth_cookie":  "",
+    "auth_bearer":  "",
 
     # ── Milvus connection ─────────────────────────────────────────────────
     "milvus_host": "127.0.0.1",

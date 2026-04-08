@@ -191,14 +191,9 @@ with st.sidebar:
     st.subheader("🤖 模型配置（可选）")
     embedding_model_name = st.text_input(
         "Embedding 模型",
-<<<<<<< HEAD
-        value="models/gemini-embedding-001",
-        help="Embedding 模型建议固定不频繁切换；切换后建议重启 Streamlit 进程释放旧模型内存, 且须勾选'清空旧数据'并重新入库。",
-=======
         value=_S["embedding_model_name"],
         help="Embedding 模型建议固定不频繁切换；切换后建议重启 Streamlit 进程释放旧模型内存, 且须勾选'清空旧数据'并重新入库。",
         disabled=is_building,
->>>>>>> c871ba62308154c6755c3fe58b34b0adb98ed810
     )
     llm_model_name = st.text_input(
         "对话LLM模型 ID",
@@ -303,6 +298,33 @@ with st.sidebar:
     target_langs = [lang_options[name] for name in selected_langs]
 
     st.divider()
+
+    with st.expander("🔐 网站登录认证（可选）", expanded=False):
+        st.caption("如果目标网站需要登录，在此填入 Cookie 或 Token。")
+        auth_cookie = st.text_input(
+            "Cookie 字符串",
+            value=_S.get("auth_cookie", ""),
+            placeholder='session=abc123; csrf_token=xyz789',
+            help="浏览器登录后，从 DevTools → Application → Cookies 复制完整 Cookie 字符串。",
+            type="password",
+        )
+        auth_bearer = st.text_input(
+            "Authorization Token (可选)",
+            value=_S.get("auth_bearer", ""),
+            placeholder="Bearer eyJhbGci...",
+            help="部分网站使用 Bearer Token 代替 Cookie。",
+            type="password",
+        )
+
+    # Build auth_headers dict from sidebar inputs
+    auth_headers = {}
+    if auth_cookie.strip():
+        auth_headers["Cookie"] = auth_cookie.strip()
+    if auth_bearer.strip():
+        token = auth_bearer.strip()
+        if not token.startswith("Bearer "):
+            token = f"Bearer {token}"
+        auth_headers["Authorization"] = token
 
     # ── Milvus connection (must come before collection name so we can query DB) ─
     st.subheader("🗄️ Milvus 连接")

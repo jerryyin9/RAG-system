@@ -19,10 +19,6 @@ from cryptography.fernet import Fernet
 
 # LangChain 核心组件
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-<<<<<<< HEAD
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-=======
->>>>>>> c871ba62308154c6755c3fe58b34b0adb98ed810
 from langchain_milvus import Milvus
 from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI
@@ -148,6 +144,9 @@ class RAGConfig:
         self.include_patterns = kwargs.get("include_patterns", [])
         self.exclude_patterns = kwargs.get("exclude_patterns", [])
         self.firecrawl_url = kwargs.get("firecrawl_url", "http://localhost:13002")
+        # Auth credentials for protected websites
+        # Format: {"Cookie": "session=abc123; csrf=xyz", "Authorization": "Bearer token"}
+        self.auth_headers = kwargs.get("auth_headers", {})
         
         # 深度、数量及语言控制
         self.max_limit = kwargs.get("max_limit", None) # 对应 URL 过滤深度/数量限制
@@ -165,20 +164,12 @@ class RAGConfig:
         self.collection_name = kwargs.get("collection_name", "rag_docs")
         self.drop_old = kwargs.get("drop_old", False)
 
-<<<<<<< HEAD
-        # 新增：Embedding 模型名称（入库阶段用）        
-        self.embedding_model   = kwargs.get("embedding_model", "models/text-embedding-004")
-        # embedding_device is meaningless for a cloud API — remove or keep as dead field.
-        # Safest: keep it but ignore it, so no downstream code breaks.
-        self.embedding_device  = kwargs.get("embedding_device", "cpu")
-=======
         # embedding_model is not used internally — the actual embedding object
         # is injected via embeddings= parameter from app.py
         self.embedding_model   = kwargs.get("embedding_model", "")
         # embedding_device is meaningless for a cloud API — remove or keep as dead field.
         # Safest: keep it but ignore it, so no downstream code breaks.
         self.embedding_device  = kwargs.get("embedding_device", "cpu") #如果是跑BAAI/bge-m3本地模型，有显卡写 cuda，Mac 写 mps，没有写 cpu。 
->>>>>>> c871ba62308154c6755c3fe58b34b0adb98ed810
 
         # FIX-04: LLM provider base URL now configurable
         self.llm_base_url      = kwargs.get("llm_base_url", "https://api.fireworks.ai/inference/v1")
@@ -647,7 +638,7 @@ class UniversalRAGEngine:
                 # 针对大部分静态网页，速度极快（几百毫秒）
                 if not is_pdf:
                     try:
-                        resp = self.session.get(url, headers=current_headers, timeout=15)
+                        resp = self.session.get(url, headers={**current_headers, **self.config.auth_headers}, timeout=15)
                         if resp.status_code == 200:
                             soup = bs4.BeautifulSoup(resp.content, "html.parser")
                             fetched_soup = soup  # FIX-13: capture for caller
@@ -669,12 +660,14 @@ class UniversalRAGEngine:
                     if self.config.firecrawl_url:
                         api_url = f"{self.config.firecrawl_url.rstrip('/')}/v1/scrape"
                         # 重点：传递 waitFor 让 JS 充分加载，并带上动态语言 headers
+                        # Build headers: browser language headers + auth headers merged
+                        combined_headers = {**current_headers, **self.config.auth_headers}
                         payload = {
                             "url": url, 
                             "formats": ["markdown"], 
                             "onlyMainContent": True,
                             "waitFor": 1500,
-                            "headers": current_headers,
+                            "headers": combined_headers, 
                         }
                         try:
                             fc_resp = self.session.post(api_url, json=payload, timeout=90)
@@ -1006,11 +999,6 @@ class RAGChatBot:
         google_key:    str,
         collection_name: str = "rag_docs",
         llm_model:    str = "accounts/fireworks/models/llama-v3p3-70b-instruct",
-<<<<<<< HEAD
-        embedding_model: str = "models/text-embedding-004",
-        embedding_device: str = "cpu", # kept for signature compatibility, not used。 如果是跑BAAI/bge-m3本地模型，有显卡写 cuda，Mac 写 mps，没有写 cpu。 
-=======
->>>>>>> c871ba62308154c6755c3fe58b34b0adb98ed810
         embeddings=None,
         # FIX-04: LLM base URL now configurable
         llm_base_url: str = "https://api.fireworks.ai/inference/v1",

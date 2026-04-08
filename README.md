@@ -6,7 +6,7 @@
 
 2. 创建环境并装好所有包: Windows 用户双击 setup.bat运行脚本，Mac/Linux 用户双击setup.sh运行脚本。它会自动创建环境并装好所有包。如果提示需要安装Docker和Python，请提前安装好。
 
-3. 启动应用：双击 setup.bat运行脚本，Mac/Linux 用户双击start.sh运行脚本。
+3. 启动应用：Windows 用户双击 start.bat运行脚本，Mac/Linux 用户双击start.sh运行脚本。
 
 
 注意： Mac 上运行 .sh 的关键一步（非常重要）。在 Mac 上，出于安全机制，新创建的脚本默认是没有执行权限的。如果你直接双击，它可能会用文本编辑器打开。
