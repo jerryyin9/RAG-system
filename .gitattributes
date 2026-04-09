@@ -1,1 +1,20 @@
+# LFS 配置（用于管理 AI 模型文件）
 *.onnx filter=lfs diff=lfs merge=lfs -text
+
+# 1. 自动处理换行符，确保跨平台一致性
+* text=auto
+
+# 2. 明确指定 Python 文件使用 LF 换行（防止部署到 Linux 出错）
+*.py text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# 3. 确保数据文件和二进制文件不被误当成文本修改
+*.png binary
+*.jpg binary
+*.bin binary
+*.pdf binary
+
+# 4. (可选) 如果你以后用 LFS 管理大数据集或模型文件
+# *.zip filter=lfs diff=lfs merge=lfs -text
+# *.pkl filter=lfs diff=lfs merge=lfs -text
