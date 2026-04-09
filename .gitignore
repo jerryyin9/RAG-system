@@ -1,0 +1,24 @@
+# --- 敏感信息 (CRITICAL) ---
+.key.secret
+.keys.enc
+*.secret
+*.env
+*.pem
+
+# --- Python 缓存与环境 ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# --- 项目特定文件 ---
+*.bak.*
+rag_settings.json
+.continue/
+CLAUDE.md
+*.txt
+
+# --- 操作系统文件 ---
+.DS_Store
+Thumbs.db
