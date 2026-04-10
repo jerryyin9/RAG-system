@@ -299,22 +299,25 @@ with st.sidebar:
 
     st.divider()
 
+    stored_cookie, stored_bearer = SecretManager.load_auth()
     with st.expander("🔐 网站登录认证（可选）", expanded=False):
         st.caption("如果目标网站需要登录，在此填入 Cookie 或 Token。")
         auth_cookie = st.text_input(
             "Cookie 字符串",
-            value=_S.get("auth_cookie", ""),
+            value=stored_cookie,
             placeholder='session=abc123; csrf_token=xyz789',
             help="浏览器登录后，从 DevTools → Application → Cookies 复制完整 Cookie 字符串。",
             type="password",
         )
         auth_bearer = st.text_input(
             "Authorization Token (可选)",
-            value=_S.get("auth_bearer", ""),
+            value=stored_bearer,
             placeholder="Bearer eyJhbGci...",
             help="部分网站使用 Bearer Token 代替 Cookie。",
             type="password",
-        )
+        )    
+        if st.button("💾 记忆认证信息", ...):
+            SecretManager.save_auth(auth_cookie, auth_bearer)
 
     # Build auth_headers dict from sidebar inputs
     auth_headers = {}

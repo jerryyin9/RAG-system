@@ -43,6 +43,16 @@ logging.basicConfig(
 logging.getLogger("langchain_milvus.vectorstores.milvus").setLevel(logging.ERROR) #Do not let AsyncMilvusClient WARNING floods the terminal window
 logger = logging.getLogger(__name__)
 
+#fix the bug of Cookie header collision silently drops language cookie
+def _merge_headers(base: dict, auth: dict) -> dict:
+    merged = {**base}
+    for k, v in auth.items():
+        if k.lower() == "cookie" and k in merged:
+            merged[k] = merged[k] + "; " + v   # concatenate cookies
+        else:
+            merged[k] = v
+    return merged
+
 #模拟网页浏览器，以免网站回复403错误，导致爬取失败
 # HTTP helper
 def get_headers(languages: List[str] = None) -> dict:
@@ -131,6 +141,27 @@ class SecretManager:
         for path in [cls.KEY_FILE, cls.DATA_FILE]:
             if path.exists():
                 path.unlink()
+    
+    #For saving and loading the Session cookies and bearer tokens, which are also sensitive credentials.
+    @classmethod
+    def save_auth(cls, cookie: str, bearer: str):
+        fernet = Fernet(cls.get_or_create_key())
+        data   = json.dumps({"cookie": cookie, "bearer": bearer}).encode()
+        auth_file = cls._BASE_DIR / ".auth.enc"
+        auth_file.write_bytes(fernet.encrypt(data))
+    
+    @classmethod
+    def load_auth(cls):
+        auth_file = cls._BASE_DIR / ".auth.enc"
+        if not auth_file.exists():
+            return "", ""
+        try:
+            fernet = Fernet(cls.get_or_create_key())
+            data   = fernet.decrypt(auth_file.read_bytes())
+            d      = json.loads(data.decode())
+            return d.get("cookie", ""), d.get("bearer", "")
+        except Exception:
+            return "", ""
 
 
 # --- 配置类 (不再包含硬编码默认值，完全由外部传入) ---
@@ -638,7 +669,8 @@ class UniversalRAGEngine:
                 # 针对大部分静态网页，速度极快（几百毫秒）
                 if not is_pdf:
                     try:
-                        resp = self.session.get(url, headers={**current_headers, **self.config.auth_headers}, timeout=15)
+                        combined_headers = _merge_headers(current_headers, self.config.auth_headers)
+                        resp = self.session.get(url, headers=combined_headers, timeout=15)
                         if resp.status_code == 200:
                             soup = bs4.BeautifulSoup(resp.content, "html.parser")
                             fetched_soup = soup  # FIX-13: capture for caller
@@ -661,7 +693,7 @@ class UniversalRAGEngine:
                         api_url = f"{self.config.firecrawl_url.rstrip('/')}/v1/scrape"
                         # 重点：传递 waitFor 让 JS 充分加载，并带上动态语言 headers
                         # Build headers: browser language headers + auth headers merged
-                        combined_headers = {**current_headers, **self.config.auth_headers}
+                        combined_headers = _merge_headers(current_headers, self.config.auth_headers)
                         payload = {
                             "url": url, 
                             "formats": ["markdown"], 
@@ -687,10 +719,10 @@ class UniversalRAGEngine:
                 # 如果是 PDF 且 Firecrawl 没有成功处理，则用本地内存流快速解析
                 if not content and is_pdf:
                     try:
-                        from pypdf import PdfReader
-                        
+                        from pypdf import PdfReader                        
                         # 显式发起请求获取 PDF 二进制流
-                        pdf_resp = self.session.get(url, headers=current_headers, timeout=60)
+                        combined_headers = _merge_headers(current_headers, self.config.auth_headers)
+                        pdf_resp = self.session.get(url, headers=combined_headers, timeout=60)
                         if pdf_resp.status_code == 200:
                             reader  = PdfReader(io.BytesIO(pdf_resp.content))
                             content = "\n".join(
